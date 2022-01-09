@@ -10,6 +10,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -23,11 +25,25 @@ type Version struct {
 	FIPSOnly       bool   // program imports "crypto/tls/fipsonly"
 }
 
+type ReaderAtCloser interface {
+	io.ReaderAt
+	io.Closer
+}
+
+func ReadExe(filepath string) (Version, error) {
+	var v Version
+	file, err := os.Open(filepath)
+	if err != nil {
+		return v, err
+	}
+	return ReadExeReader(file)
+}
+
 // ReadExe reports information about the Go version used to build
 // the program executable named by file.
-func ReadExe(file string) (Version, error) {
+func ReadExeReader(reader ReaderAtCloser) (Version, error) {
 	var v Version
-	f, err := openExe(file)
+	f, err := openExeReader(reader)
 	if err != nil {
 		return v, err
 	}

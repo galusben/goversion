@@ -11,7 +11,6 @@ import (
 	"debug/pe"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"os"
 )
 
@@ -32,46 +31,48 @@ type exe interface {
 	TextRange() (uint64, uint64)
 	RODataRange() (uint64, uint64)
 }
-
 func openExe(file string) (exe, error) {
 	f, err := os.Open(file)
 	if err != nil {
 		return nil, err
 	}
+	return openExeReader(f)
+}
+func openExeReader(readerAt ReaderAtCloser) (exe, error) {
 	data := make([]byte, 16)
-	if _, err := io.ReadFull(f, data); err != nil {
+	bytesRead, err := readerAt.ReadAt(data, 0)
+	if err != nil && bytesRead < 16 {
 		return nil, err
 	}
-	f.Seek(0, 0)
 	if bytes.HasPrefix(data, []byte("\x7FELF")) {
-		e, err := elf.NewFile(f)
+		e, err := elf.NewFile(readerAt)
 		if err != nil {
-			f.Close()
+			readerAt.Close()
 			return nil, err
 		}
-		return &elfExe{f, e}, nil
+		return &elfExe{readerAt, e}, nil
 	}
 	if bytes.HasPrefix(data, []byte("MZ")) {
-		e, err := pe.NewFile(f)
+		e, err := pe.NewFile(readerAt)
 		if err != nil {
-			f.Close()
+			readerAt.Close()
 			return nil, err
 		}
-		return &peExe{f, e}, nil
+		return &peExe{readerAt, e}, nil
 	}
 	if bytes.HasPrefix(data, []byte("\xFE\xED\xFA")) || bytes.HasPrefix(data[1:], []byte("\xFA\xED\xFE")) {
-		e, err := macho.NewFile(f)
+		e, err := macho.NewFile(readerAt)
 		if err != nil {
-			f.Close()
+			readerAt.Close()
 			return nil, err
 		}
-		return &machoExe{f, e}, nil
+		return &machoExe{readerAt, e}, nil
 	}
 	return nil, fmt.Errorf("unrecognized executable format")
 }
 
 type elfExe struct {
-	os *os.File
+	os ReaderAtCloser
 	f  *elf.File
 }
 
@@ -143,7 +144,7 @@ func (x *elfExe) RODataRange() (uint64, uint64) {
 }
 
 type peExe struct {
-	os *os.File
+	os ReaderAtCloser
 	f  *pe.File
 }
 
@@ -231,7 +232,7 @@ func (x *peExe) RODataRange() (uint64, uint64) {
 }
 
 type machoExe struct {
-	os *os.File
+	os ReaderAtCloser
 	f  *macho.File
 }
 
